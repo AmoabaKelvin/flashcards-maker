@@ -20,9 +20,29 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Flashcards",
+  title: {
+    default: "Flashcards",
+    template: "%s | Flashcards",
+  },
   description:
-    "Upload a CSV file and study with beautiful, interactive flashcards.",
+    "Upload a CSV file and study with beautiful, interactive flashcards. Track progress, share decks, and resume sessions.",
+  metadataBase: new URL(
+    process.env.NEXT_PUBLIC_BASE_URL || "https://study.kelvinamoaba.com"
+  ),
+  openGraph: {
+    title: "Flashcards",
+    description:
+      "Upload a CSV file and study with beautiful, interactive flashcards.",
+    siteName: "Flashcards",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Flashcards",
+    description:
+      "Upload a CSV file and study with beautiful, interactive flashcards.",
+  },
 };
 
 export default function RootLayout({
