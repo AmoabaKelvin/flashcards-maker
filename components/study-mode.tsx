@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import type { FlashcardData } from "@/lib/csv-parser";
 import { shuffleCards } from "@/lib/csv-parser";
-import { saveSession, clearSession, type StudySession } from "@/lib/session";
+import {
+  saveSession,
+  clearSession,
+  type StudySession,
+  type CardRating,
+} from "@/lib/session";
 import { Flashcard } from "@/components/flashcard";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +19,7 @@ import {
   ShuffleIcon,
   ArrowTurnBackwardIcon,
   Tick02Icon,
+  Cancel01Icon,
   Share08Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -24,6 +30,7 @@ interface StudyModeProps {
   csvContent: string;
   initialIndex?: number;
   initialSeen?: Set<number>;
+  initialRatings?: Record<number, CardRating>;
   onExit: () => void;
   onShare?: () => void;
   shareState?: "idle" | "sharing" | "copied" | "error";
@@ -35,6 +42,7 @@ export function StudyMode({
   csvContent,
   initialIndex = 0,
   initialSeen,
+  initialRatings,
   onExit,
   onShare,
   shareState = "idle",
@@ -45,6 +53,9 @@ export function StudyMode({
   const [seenCards, setSeenCards] = useState<Set<number>>(
     initialSeen ?? new Set()
   );
+  const [ratings, setRatings] = useState<Record<number, CardRating>>(
+    initialRatings ?? {}
+  );
   const [animationKey, setAnimationKey] = useState(0);
   const [isComplete, setIsComplete] = useState(false);
 
@@ -52,7 +63,24 @@ export function StudyMode({
   const progress = ((currentIndex + 1) / currentCards.length) * 100;
   const seenCount = seenCards.size;
 
-  // Persist session to localStorage on progress changes
+  const currentCardRating = currentCard
+    ? ratings[currentCard.id]
+    : undefined;
+
+  const scoreStats = useMemo(() => {
+    const values = Object.values(ratings);
+    const gotCount = values.filter((r) => r === "got").length;
+    const missedCount = values.filter((r) => r === "missed").length;
+    const ratedCount = gotCount + missedCount;
+    const percentage =
+      ratedCount > 0 ? Math.round((gotCount / ratedCount) * 100) : 0;
+    const missedCardIds = Object.entries(ratings)
+      .filter(([, r]) => r === "missed")
+      .map(([id]) => Number(id));
+    return { gotCount, missedCount, ratedCount, percentage, missedCardIds };
+  }, [ratings]);
+
+  // Persist session on progress changes
   useEffect(() => {
     if (isComplete) return;
     const session: StudySession = {
@@ -61,10 +89,19 @@ export function StudyMode({
       cardOrder: currentCards.map((c) => c.id),
       currentIndex,
       seenCardIds: Array.from(seenCards),
+      ratings,
       timestamp: Date.now(),
     };
     saveSession(session);
-  }, [currentCards, currentIndex, seenCards, deckName, csvContent, isComplete]);
+  }, [
+    currentCards,
+    currentIndex,
+    seenCards,
+    ratings,
+    deckName,
+    csvContent,
+    isComplete,
+  ]);
 
   const flipCard = useCallback(() => {
     setIsFlipped((prev) => {
@@ -94,6 +131,16 @@ export function StudyMode({
     }
   }, [currentIndex]);
 
+  const rateCard = useCallback(
+    (rating: CardRating) => {
+      const cardId = currentCards[currentIndex].id;
+      setRatings((prev) => ({ ...prev, [cardId]: rating }));
+      setSeenCards((s) => new Set(s).add(cardId));
+      goToNext();
+    },
+    [currentCards, currentIndex, goToNext]
+  );
+
   const handleShuffle = useCallback(() => {
     setCurrentCards(shuffleCards(currentCards));
     setCurrentIndex(0);
@@ -105,14 +152,29 @@ export function StudyMode({
     setCurrentIndex(0);
     setIsFlipped(false);
     setSeenCards(new Set());
+    setRatings({});
     setIsComplete(false);
     setAnimationKey((prev) => prev + 1);
   }, []);
+
+  const handleRestudyMissed = useCallback(() => {
+    const missedIds = new Set(scoreStats.missedCardIds);
+    const missedCards = currentCards.filter((c) => missedIds.has(c.id));
+    if (missedCards.length === 0) return;
+    setCurrentCards(missedCards);
+    setCurrentIndex(0);
+    setIsFlipped(false);
+    setSeenCards(new Set());
+    setRatings({});
+    setIsComplete(false);
+    setAnimationKey((prev) => prev + 1);
+  }, [scoreStats.missedCardIds, currentCards]);
 
   const handleExit = useCallback(() => {
     onExit();
   }, [onExit]);
 
+  // Keyboard shortcuts
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (
@@ -135,6 +197,18 @@ export function StudyMode({
           e.preventDefault();
           flipCard();
           break;
+        case "1":
+          if (isFlipped) {
+            e.preventDefault();
+            rateCard("got");
+          }
+          break;
+        case "2":
+          if (isFlipped) {
+            e.preventDefault();
+            rateCard("missed");
+          }
+          break;
         case "Escape":
           e.preventDefault();
           handleExit();
@@ -144,14 +218,22 @@ export function StudyMode({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [flipCard, goToNext, goToPrevious, handleExit]);
+  }, [flipCard, goToNext, goToPrevious, rateCard, isFlipped, handleExit]);
 
+  // Completion screen
   if (isComplete) {
+    const { gotCount, missedCount, ratedCount, percentage, missedCardIds } =
+      scoreStats;
+
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-4 animate-fade-in">
         <div className="flex flex-col items-center gap-6 max-w-md text-center">
           <div className="flex items-center justify-center w-20 h-20 rounded-full bg-primary/10">
-            <HugeiconsIcon icon={Tick02Icon} size={36} className="text-primary" />
+            <HugeiconsIcon
+              icon={Tick02Icon}
+              size={36}
+              className="text-primary"
+            />
           </div>
           <div className="space-y-2">
             <h2 className="font-display text-3xl font-normal text-foreground">
@@ -162,7 +244,45 @@ export function StudyMode({
               <span className="font-medium text-foreground">{deckName}</span>.
             </p>
           </div>
+
+          {ratedCount > 0 && (
+            <div className="w-full rounded-xl border border-border bg-card/50 p-5 space-y-4">
+              <div className="text-3xl font-semibold text-foreground tabular-nums">
+                {gotCount}/{ratedCount}{" "}
+                <span className="text-base font-normal text-muted-foreground">
+                  ({percentage}%)
+                </span>
+              </div>
+              <div className="flex items-center gap-5 justify-center text-sm">
+                <span className="flex items-center gap-1.5 text-primary">
+                  <HugeiconsIcon icon={Tick02Icon} size={14} />
+                  {gotCount} got it
+                </span>
+                <span className="flex items-center gap-1.5 text-destructive">
+                  <HugeiconsIcon icon={Cancel01Icon} size={14} />
+                  {missedCount} missed
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary rounded-full transition-all duration-500"
+                  style={{ width: `${percentage}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+            {missedCardIds.length > 0 && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={handleRestudyMissed}
+                className="gap-2"
+              >
+                Re-study missed ({missedCardIds.length})
+              </Button>
+            )}
             <Button
               variant="outline"
               size="lg"
@@ -280,14 +400,52 @@ export function StudyMode({
               <HugeiconsIcon icon={ArrowLeft01Icon} size={18} />
             </Button>
 
-            <Button
-              variant="default"
-              size="lg"
-              onClick={flipCard}
-              className="px-8 gap-2"
-            >
-              {isFlipped ? "Show question" : "Reveal answer"}
-            </Button>
+            {isFlipped ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={() => rateCard("missed")}
+                  className={cn(
+                    "gap-2 px-5",
+                    currentCardRating === "missed"
+                      ? "border-destructive/50 bg-destructive/10 text-destructive"
+                      : "border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive/50"
+                  )}
+                >
+                  <HugeiconsIcon
+                    icon={Cancel01Icon}
+                    size={16}
+                    data-icon="inline-start"
+                  />
+                  Missed it
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={() => rateCard("got")}
+                  className={cn(
+                    "gap-2 px-5",
+                    currentCardRating === "got" && "ring-2 ring-primary/30"
+                  )}
+                >
+                  <HugeiconsIcon
+                    icon={Tick02Icon}
+                    size={16}
+                    data-icon="inline-start"
+                  />
+                  Got it
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="default"
+                size="lg"
+                onClick={flipCard}
+                className="px-8 gap-2"
+              >
+                Reveal answer
+              </Button>
+            )}
 
             <Button
               variant="outline"
@@ -332,6 +490,28 @@ export function StudyMode({
               </kbd>
               Flip
             </span>
+            {isFlipped && (
+              <span className="flex items-center gap-1.5">
+                <kbd
+                  className={cn(
+                    "inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded",
+                    "bg-muted/80 border border-border/50 font-mono text-[10px]"
+                  )}
+                >
+                  1
+                </kbd>
+                Got it
+                <kbd
+                  className={cn(
+                    "inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded",
+                    "bg-muted/80 border border-border/50 font-mono text-[10px]"
+                  )}
+                >
+                  2
+                </kbd>
+                Missed
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <kbd
                 className={cn(

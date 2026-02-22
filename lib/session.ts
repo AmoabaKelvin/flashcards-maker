@@ -1,11 +1,14 @@
 const SESSION_KEY = "flashcards-session";
 
+export type CardRating = "got" | "missed";
+
 export interface StudySession {
   deckName: string;
   csvContent: string;
-  cardOrder: number[]; // card IDs in study order
+  cardOrder: number[];
   currentIndex: number;
   seenCardIds: number[];
+  ratings?: Record<number, CardRating>;
   timestamp: number;
 }
 

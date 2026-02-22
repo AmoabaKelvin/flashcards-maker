@@ -2,12 +2,16 @@
 
 import { useState, useCallback, useEffect, useTransition } from "react";
 import { parseCSV, shuffleCards, type FlashcardData } from "@/lib/csv-parser";
-import { loadSession, clearSession } from "@/lib/session";
+import { loadSession, clearSession, type CardRating } from "@/lib/session";
+import { saveDeck, updateLastStudied } from "@/lib/deck-library";
 import { shareDeck } from "@/app/actions";
 import { UploadZone } from "@/components/upload-zone";
+import { GenerateMode } from "@/components/generate-mode";
+import { DeckLibrary } from "@/components/deck-library";
 import { StudyMode } from "@/components/study-mode";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import {
   PlayIcon,
   ShuffleIcon,
@@ -17,10 +21,12 @@ import {
   Tick02Icon,
   LinkSquare02Icon,
   PlayCircleIcon,
+  SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
 type AppView = "upload" | "preview" | "study";
+type UploadTab = "csv" | "generate";
 
 interface SharedDeck {
   name: string;
@@ -37,6 +43,7 @@ interface ResumeData {
   cardOrder: number[];
   currentIndex: number;
   seenCardIds: number[];
+  ratings?: Record<number, CardRating>;
   timestamp: number;
 }
 
@@ -60,6 +67,7 @@ function formatTimeAgo(timestamp: number): string {
 
 export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
   const [view, setView] = useState<AppView>(sharedDeck ? "preview" : "upload");
+  const [uploadTab, setUploadTab] = useState<UploadTab>("csv");
   const [cards, setCards] = useState<FlashcardData[]>([]);
   const [csvContent, setCsvContent] = useState("");
   const [deckName, setDeckName] = useState("");
@@ -68,6 +76,9 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
   const [studyInitialSeen, setStudyInitialSeen] = useState<Set<number>>(
     new Set()
   );
+  const [studyInitialRatings, setStudyInitialRatings] = useState<
+    Record<number, CardRating>
+  >({});
 
   // Share state
   const [shareState, setShareState] = useState<
@@ -79,9 +90,12 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
   // Resume state
   const [resumeData, setResumeData] = useState<ResumeData | null>(null);
 
+  // Deck library
+  const [libraryRefreshKey, setLibraryRefreshKey] = useState(0);
+
   // Check for resumable session on mount
   useEffect(() => {
-    if (sharedDeck) return; // Don't show resume for shared decks
+    if (sharedDeck) return;
     const session = loadSession();
     if (session) {
       setResumeData(session);
@@ -96,6 +110,7 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
         setCards(parsed);
         setCsvContent(sharedDeck.csvContent);
         setDeckName(sharedDeck.name);
+        saveDeck(sharedDeck.name, sharedDeck.csvContent, parsed.length);
         setView("preview");
       }
     }
@@ -104,14 +119,37 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
   const handleFileLoaded = useCallback((content: string, filename: string) => {
     const parsed = parseCSV(content);
     if (parsed.length === 0) return;
+    const name = formatDeckName(filename);
     setCards(parsed);
     setCsvContent(content);
-    setDeckName(formatDeckName(filename));
+    setDeckName(name);
     setShareState("idle");
     setShareUrl("");
     setResumeData(null);
+    saveDeck(name, content, parsed.length);
+    setLibraryRefreshKey((k) => k + 1);
     setView("preview");
   }, []);
+
+  const handleGeneratedCards = useCallback(
+    (generatedCsv: string, name: string) => {
+      const parsed = parseCSV(generatedCsv);
+      if (parsed.length === 0) return;
+      const deckTitle = name
+        .replace(/\b\w/g, (c) => c.toUpperCase())
+        .slice(0, 60);
+      setCards(parsed);
+      setCsvContent(generatedCsv);
+      setDeckName(deckTitle);
+      setShareState("idle");
+      setShareUrl("");
+      setResumeData(null);
+      saveDeck(deckTitle, generatedCsv, parsed.length);
+      setLibraryRefreshKey((k) => k + 1);
+      setView("preview");
+    },
+    []
+  );
 
   const handleResume = useCallback(() => {
     if (!resumeData) return;
@@ -122,7 +160,6 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
     setCsvContent(resumeData.csvContent);
     setDeckName(resumeData.deckName);
 
-    // Restore card order
     const cardMap = new Map(parsed.map((c) => [c.id, c]));
     const orderedCards = resumeData.cardOrder
       .map((id) => cardMap.get(id))
@@ -130,9 +167,16 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
 
     setStudyCards(orderedCards.length > 0 ? orderedCards : parsed);
     setStudyInitialIndex(
-      Math.min(resumeData.currentIndex, (orderedCards.length || parsed.length) - 1)
+      Math.min(
+        resumeData.currentIndex,
+        (orderedCards.length || parsed.length) - 1
+      )
     );
     setStudyInitialSeen(new Set(resumeData.seenCardIds));
+    setStudyInitialRatings(resumeData.ratings ?? {});
+    saveDeck(resumeData.deckName, resumeData.csvContent, parsed.length);
+    updateLastStudied(resumeData.deckName, resumeData.csvContent);
+    setLibraryRefreshKey((k) => k + 1);
     setResumeData(null);
     setView("study");
   }, [resumeData]);
@@ -156,7 +200,7 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
       try {
         await navigator.clipboard.writeText(url);
       } catch {
-        // Clipboard not available - URL still shown
+        // Clipboard not available
       }
       setShareState("copied");
       setTimeout(() => setShareState("idle"), 4000);
@@ -169,9 +213,26 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
       setStudyCards(ordered);
       setStudyInitialIndex(0);
       setStudyInitialSeen(new Set());
+      setStudyInitialRatings({});
+      updateLastStudied(deckName, csvContent);
+      setLibraryRefreshKey((k) => k + 1);
       setView("study");
     },
-    [cards]
+    [cards, deckName, csvContent]
+  );
+
+  const handleSelectDeck = useCallback(
+    (name: string, content: string) => {
+      const parsed = parseCSV(content);
+      if (parsed.length === 0) return;
+      setCards(parsed);
+      setCsvContent(content);
+      setDeckName(name);
+      setShareState("idle");
+      setShareUrl("");
+      setView("preview");
+    },
+    []
   );
 
   const handleReset = useCallback(() => {
@@ -193,6 +254,7 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
         csvContent={csvContent}
         initialIndex={studyInitialIndex}
         initialSeen={studyInitialSeen}
+        initialRatings={studyInitialRatings}
         onExit={() => setView("preview")}
         onShare={handleShare}
         shareState={shareState}
@@ -209,20 +271,20 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
 
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 sm:px-8 py-12">
         {/* Header */}
-        <div className="flex flex-col items-center gap-3 mb-12 animate-fade-in">
+        <div className="flex flex-col items-center gap-3 mb-10 animate-fade-in">
           <h1 className="font-display text-4xl sm:text-5xl font-normal tracking-tight text-foreground">
             Flashcards
           </h1>
           <p className="text-muted-foreground text-center max-w-md">
             {view === "upload"
-              ? "Upload a CSV file to create your flashcard deck and start studying."
+              ? "Create your flashcard deck and start studying."
               : "Your deck is ready to study."}
           </p>
         </div>
 
         {/* Resume banner */}
         {view === "upload" && resumeData && (
-          <div className="w-full max-w-xl mx-auto mb-8 animate-slide-up">
+          <div className="w-full max-w-2xl mx-auto mb-8 animate-slide-up">
             <div className="flex items-center gap-4 px-5 py-4 rounded-xl border border-primary/20 bg-primary/[0.03]">
               <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-primary/10 shrink-0">
                 <HugeiconsIcon
@@ -260,7 +322,49 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
         )}
 
         {/* Content */}
-        {view === "upload" && <UploadZone onFileLoaded={handleFileLoaded} />}
+        {view === "upload" && (
+          <div className="w-full max-w-2xl mx-auto">
+            {/* Tab switcher */}
+            <div className="flex items-center justify-center gap-1 mb-8 p-1 rounded-xl bg-muted/50 border border-border/50 w-fit mx-auto">
+              <button
+                onClick={() => setUploadTab("csv")}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  uploadTab === "csv"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <HugeiconsIcon icon={Upload04Icon} size={15} />
+                Upload CSV
+              </button>
+              <button
+                onClick={() => setUploadTab("generate")}
+                className={cn(
+                  "flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all",
+                  uploadTab === "generate"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                <HugeiconsIcon icon={SparklesIcon} size={15} />
+                Generate with AI
+              </button>
+            </div>
+
+            {uploadTab === "csv" && (
+              <UploadZone onFileLoaded={handleFileLoaded} />
+            )}
+            {uploadTab === "generate" && (
+              <GenerateMode onCardsReady={handleGeneratedCards} />
+            )}
+
+            <DeckLibrary
+              onSelectDeck={handleSelectDeck}
+              refreshKey={libraryRefreshKey}
+            />
+          </div>
+        )}
 
         {view === "preview" && cards.length > 0 && (
           <div className="w-full max-w-xl mx-auto animate-slide-up">
