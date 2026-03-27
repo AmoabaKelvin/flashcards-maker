@@ -67,7 +67,7 @@ function formatTimeAgo(timestamp: number): string {
 
 export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
   const [view, setView] = useState<AppView>(sharedDeck ? "preview" : "upload");
-  const [uploadTab, setUploadTab] = useState<UploadTab>("csv");
+  const [uploadTab, setUploadTab] = useState<UploadTab>("generate");
   const [cards, setCards] = useState<FlashcardData[]>([]);
   const [csvContent, setCsvContent] = useState("");
   const [deckName, setDeckName] = useState("");
