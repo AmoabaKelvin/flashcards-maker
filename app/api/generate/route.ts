@@ -106,7 +106,7 @@ Guidelines:
   });
 
   const { elementStream } = streamText({
-    model: "anthropic/claude-sonnet-4-5",
+    model: "google/gemini-3-flash",
     system: systemPrompt,
     messages: [{ role: "user" as const, content: contentParts }],
     output: Output.array({
