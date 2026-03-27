@@ -6,6 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { RichText } from "@/components/rich-text";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Attachment01Icon,
   SparklesIcon,
   Download04Icon,
@@ -357,52 +364,46 @@ export function GenerateMode({ onCardsReady }: GenerateModeProps) {
             <div className="w-px h-4 bg-border/50 mx-0.5" />
 
             {/* Card count */}
-            <div className="flex items-center rounded-lg bg-muted/40 p-0.5">
-              {(["fewer", "standard", "more"] as const).map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() =>
-                    setConfig((prev) => ({ ...prev, cardCount: opt }))
-                  }
-                  disabled={isGenerating}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md text-[11px] font-medium transition-all",
-                    config.cardCount === opt
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {opt === "fewer"
-                    ? "Fewer"
-                    : opt === "standard"
-                      ? "Standard"
-                      : "More"}
-                </button>
-              ))}
-            </div>
-
-            <div className="w-px h-4 bg-border/50 mx-0.5 hidden sm:block" />
+            <Select
+              value={config.cardCount}
+              onValueChange={(v) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  cardCount: v as GenerateConfig["cardCount"],
+                }))
+              }
+              disabled={isGenerating}
+            >
+              <SelectTrigger size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fewer">Fewer</SelectItem>
+                <SelectItem value="standard">Standard</SelectItem>
+                <SelectItem value="more">More</SelectItem>
+              </SelectContent>
+            </Select>
 
             {/* Difficulty */}
-            <div className="flex items-center rounded-lg bg-muted/40 p-0.5">
-              {(["easy", "medium", "hard"] as const).map((opt) => (
-                <button
-                  key={opt}
-                  onClick={() =>
-                    setConfig((prev) => ({ ...prev, difficulty: opt }))
-                  }
-                  disabled={isGenerating}
-                  className={cn(
-                    "px-2 py-0.5 rounded-md text-[11px] font-medium transition-all",
-                    config.difficulty === opt
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  {opt.charAt(0).toUpperCase() + opt.slice(1)}
-                </button>
-              ))}
-            </div>
+            <Select
+              value={config.difficulty}
+              onValueChange={(v) =>
+                setConfig((prev) => ({
+                  ...prev,
+                  difficulty: v as GenerateConfig["difficulty"],
+                }))
+              }
+              disabled={isGenerating}
+            >
+              <SelectTrigger size="sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="easy">Easy</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="hard">Hard</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Generate button */}
