@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { upload } from "@vercel/blob/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ interface AttachedFile {
   size: number;
   content: string;
   isText: boolean;
+  rawFile?: File;
 }
 
 interface GenerateConfig {
@@ -128,24 +130,29 @@ export function GenerateMode({ onCardsReady }: GenerateModeProps) {
 
         const isText = isTextFile(file.name) || file.type.startsWith("text/");
 
-        const content = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          if (isText) {
+        if (isText) {
+          const content = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
             reader.onload = () => resolve(reader.result as string);
             reader.readAsText(file);
-          } else {
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(file);
-          }
-        });
-
-        newFiles.push({
-          name: file.name,
-          type: file.type || "application/octet-stream",
-          size: file.size,
-          content,
-          isText,
-        });
+          });
+          newFiles.push({
+            name: file.name,
+            type: file.type || "text/plain",
+            size: file.size,
+            content,
+            isText: true,
+          });
+        } else {
+          newFiles.push({
+            name: file.name,
+            type: file.type || "application/octet-stream",
+            size: file.size,
+            content: "",
+            isText: false,
+            rawFile: file,
+          });
+        }
       }
 
       setFiles((prev) => [...prev, ...newFiles]);
@@ -175,17 +182,29 @@ export function GenerateMode({ onCardsReady }: GenerateModeProps) {
     setFlippedCards(new Set());
 
     try {
+      // Upload non-text files directly to Vercel Blob (bypasses server body limit)
+      const filePayloads = await Promise.all(
+        files.map(async (f) => {
+          if (f.isText) {
+            return { content: f.content, type: f.type, name: f.name, isText: true };
+          }
+          if (!f.rawFile) {
+            throw new Error(`Missing file data for ${f.name}`);
+          }
+          const blob = await upload(f.rawFile.name, f.rawFile, {
+            access: "public",
+            handleUploadUrl: "/api/upload",
+          });
+          return { url: blob.url, type: f.type, name: f.name, isText: false };
+        })
+      );
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           instructions: input,
-          files: files.map((f) => ({
-            content: f.content,
-            type: f.type,
-            name: f.name,
-            isText: f.isText,
-          })),
+          files: filePayloads,
           config,
         }),
       });

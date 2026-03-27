@@ -1,4 +1,5 @@
 import { streamText, Output } from "ai";
+import { del } from "@vercel/blob";
 import { z } from "zod";
 
 export const maxDuration = 60;
@@ -12,18 +13,17 @@ const flashcardSchema = z.object({
     .describe("The answer, definition, or explanation"),
 });
 
+const fileSchema = z.object({
+  type: z.string(),
+  name: z.string(),
+  isText: z.boolean(),
+  content: z.string().optional(),
+  url: z.string().optional(),
+});
+
 const requestSchema = z.object({
   instructions: z.string().default(""),
-  files: z
-    .array(
-      z.object({
-        content: z.string(),
-        type: z.string(),
-        name: z.string(),
-        isText: z.boolean(),
-      })
-    )
-    .default([]),
+  files: z.array(fileSchema).default([]),
   config: z.object({
     cardCount: z.enum(["fewer", "standard", "more"]).default("standard"),
     difficulty: z.enum(["easy", "medium", "hard"]).default("medium"),
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
 
   const cardCounts: Record<string, string> = {
     fewer: "8 to 12",
-    standard: "18 to 25",
+    standard: "25 to 30",
     more: "35 to 50",
   };
 
@@ -68,6 +68,7 @@ Guidelines:
   // Build message content parts
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const contentParts: any[] = [];
+  const blobUrls: string[] = [];
 
   for (const file of files) {
     if (file.isText) {
@@ -75,23 +76,24 @@ Guidelines:
         type: "text",
         text: `--- File: ${file.name} ---\n${file.content}\n--- End of file ---`,
       });
-    } else if (file.type.startsWith("image/")) {
-      const commaIdx = file.content.indexOf(",");
-      const base64 = commaIdx !== -1 ? file.content.slice(commaIdx + 1) : file.content;
-      if (!base64) continue;
-      contentParts.push({
-        type: "image",
-        image: base64,
-      });
-    } else {
-      const commaIdx = file.content.indexOf(",");
-      const base64 = commaIdx !== -1 ? file.content.slice(commaIdx + 1) : file.content;
-      if (!base64) continue;
-      contentParts.push({
-        type: "file",
-        data: base64,
-        mediaType: file.type,
-      });
+    } else if (file.url) {
+      blobUrls.push(file.url);
+      const res = await fetch(file.url);
+      const buffer = await res.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString("base64");
+
+      if (file.type.startsWith("image/")) {
+        contentParts.push({
+          type: "image",
+          image: base64,
+        });
+      } else {
+        contentParts.push({
+          type: "file",
+          data: base64,
+          mediaType: file.type,
+        });
+      }
     }
   }
 
@@ -131,6 +133,10 @@ Guidelines:
           encoder.encode(JSON.stringify({ error: message }) + "\n")
         );
         controller.close();
+      } finally {
+        if (blobUrls.length > 0) {
+          del(blobUrls).catch(() => {});
+        }
       }
     },
   });
