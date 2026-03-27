@@ -7,33 +7,35 @@ type Segment =
   | { type: "text"; content: string }
   | { type: "math"; content: string }
   | { type: "italic"; content: string }
-  | { type: "bold"; content: string };
+  | { type: "bold"; content: string }
+  | { type: "code"; content: string };
 
 function tokenize(text: string): Segment[] {
   const segments: Segment[] = [];
-  // Match $...$ (LaTeX), **...** (bold), *...* (italic)
-  const pattern = /\$([^$]+)\$|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
+  // Order matters: backtick code first (prevents inner * from being parsed),
+  // then $...$ (LaTeX), then **...** (bold), then *...* (italic)
+  const pattern = /`([^`]+)`|\$([^$]+)\$|\*\*([^*]+)\*\*|\*([^*]+)\*/g;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(text)) !== null) {
-    // Add preceding plain text
     if (match.index > lastIndex) {
       segments.push({ type: "text", content: text.slice(lastIndex, match.index) });
     }
 
     if (match[1] !== undefined) {
-      segments.push({ type: "math", content: match[1] });
+      segments.push({ type: "code", content: match[1] });
     } else if (match[2] !== undefined) {
-      segments.push({ type: "bold", content: match[2] });
+      segments.push({ type: "math", content: match[2] });
     } else if (match[3] !== undefined) {
-      segments.push({ type: "italic", content: match[3] });
+      segments.push({ type: "bold", content: match[3] });
+    } else if (match[4] !== undefined) {
+      segments.push({ type: "italic", content: match[4] });
     }
 
     lastIndex = match.index + match[0].length;
   }
 
-  // Add remaining text
   if (lastIndex < text.length) {
     segments.push({ type: "text", content: text.slice(lastIndex) });
   }
@@ -71,6 +73,15 @@ export function RichText({ text, className }: RichTextProps) {
                 key={i}
                 dangerouslySetInnerHTML={{ __html: renderMath(segment.content) }}
               />
+            );
+          case "code":
+            return (
+              <code
+                key={i}
+                className="px-1.5 py-0.5 rounded bg-muted border border-border/50 text-[0.9em] font-mono"
+              >
+                {segment.content}
+              </code>
             );
           case "italic":
             return <em key={i}>{segment.content}</em>;
