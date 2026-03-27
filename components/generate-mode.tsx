@@ -74,13 +74,16 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function escapeCSVField(field: string): string {
+  if (/[,"\r\n]/.test(field)) {
+    return `"${field.replace(/"/g, '""')}"`;
+  }
+  return field;
+}
+
 function cardsToCSV(cards: GeneratedCard[]): string {
   return cards
-    .map((c) => {
-      const front = c.front.includes(",") ? `"${c.front.replace(/"/g, '""')}"` : c.front;
-      const back = c.back.includes(",") ? `"${c.back.replace(/"/g, '""')}"` : c.back;
-      return `${front},${back}`;
-    })
+    .map((c) => `${escapeCSVField(c.front)},${escapeCSVField(c.back)}`)
     .join("\n");
 }
 

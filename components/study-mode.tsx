@@ -135,10 +135,19 @@ export function StudyMode({
     (rating: CardRating) => {
       const cardId = currentCards[currentIndex].id;
       setRatings((prev) => ({ ...prev, [cardId]: rating }));
-      setSeenCards((s) => new Set(s).add(cardId));
-      goToNext();
+      const newSeen = new Set(seenCards).add(cardId);
+      setSeenCards(newSeen);
+
+      if (currentIndex < currentCards.length - 1) {
+        setIsFlipped(false);
+        setCurrentIndex((prev) => prev + 1);
+        setAnimationKey((prev) => prev + 1);
+      } else if (newSeen.size >= currentCards.length) {
+        setIsComplete(true);
+        clearSession();
+      }
     },
-    [currentCards, currentIndex, goToNext]
+    [currentCards, currentIndex, seenCards]
   );
 
   const handleShuffle = useCallback(() => {

@@ -12,18 +12,33 @@ const flashcardSchema = z.object({
     .describe("The answer, definition, or explanation"),
 });
 
+const requestSchema = z.object({
+  instructions: z.string().default(""),
+  files: z
+    .array(
+      z.object({
+        content: z.string(),
+        type: z.string(),
+        name: z.string(),
+        isText: z.boolean(),
+      })
+    )
+    .default([]),
+  config: z.object({
+    cardCount: z.enum(["fewer", "standard", "more"]).default("standard"),
+    difficulty: z.enum(["easy", "medium", "hard"]).default("medium"),
+  }),
+});
+
 export async function POST(req: Request) {
-  const body = await req.json();
-  const { instructions, files, config } = body as {
-    instructions: string;
-    files: Array<{
-      content: string;
-      type: string;
-      name: string;
-      isText: boolean;
-    }>;
-    config: { cardCount: string; difficulty: string };
-  };
+  const parsed = requestSchema.safeParse(await req.json());
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Invalid request body", details: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+  const { instructions, files, config } = parsed.data;
 
   const cardCounts: Record<string, string> = {
     fewer: "8 to 12",
@@ -61,13 +76,17 @@ Guidelines:
         text: `--- File: ${file.name} ---\n${file.content}\n--- End of file ---`,
       });
     } else if (file.type.startsWith("image/")) {
-      const base64 = file.content.split(",")[1];
+      const commaIdx = file.content.indexOf(",");
+      const base64 = commaIdx !== -1 ? file.content.slice(commaIdx + 1) : file.content;
+      if (!base64) continue;
       contentParts.push({
         type: "image",
         image: base64,
       });
     } else {
-      const base64 = file.content.split(",")[1];
+      const commaIdx = file.content.indexOf(",");
+      const base64 = commaIdx !== -1 ? file.content.slice(commaIdx + 1) : file.content;
+      if (!base64) continue;
       contentParts.push({
         type: "file",
         data: base64,

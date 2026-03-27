@@ -230,6 +230,7 @@ export function FlashcardsApp({ sharedDeck }: FlashcardsAppProps) {
       setDeckName(name);
       setShareState("idle");
       setShareUrl("");
+      setResumeData(null);
       setView("preview");
     },
     []

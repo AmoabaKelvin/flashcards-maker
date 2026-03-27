@@ -23,11 +23,12 @@ function loadLibrary(): SavedDeck[] {
   }
 }
 
-function persistLibrary(decks: SavedDeck[]): void {
+function persistLibrary(decks: SavedDeck[]): boolean {
   try {
     localStorage.setItem(LIBRARY_KEY, JSON.stringify(decks));
+    return true;
   } catch {
-    // Storage full or unavailable
+    return false;
   }
 }
 
@@ -43,7 +44,7 @@ export function saveDeck(
   name: string,
   csvContent: string,
   cardCount: number
-): SavedDeck {
+): SavedDeck | null {
   const decks = loadLibrary();
   const existing = decks.find(
     (d) => d.name === name && d.csvContent === csvContent
@@ -59,7 +60,7 @@ export function saveDeck(
     lastStudiedAt: null,
   };
   decks.unshift(deck);
-  persistLibrary(decks);
+  if (!persistLibrary(decks)) return null;
   return deck;
 }
 
