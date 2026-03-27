@@ -541,7 +541,7 @@ export function GenerateMode({ onCardsReady }: GenerateModeProps) {
               <Button
                 size="lg"
                 onClick={handleStudyCards}
-                className="gap-2 flex-1 sm:flex-initial"
+                className="gap-2 flex-1 sm:flex-initial h-12 sm:h-9"
               >
                 <HugeiconsIcon
                   icon={PlayIcon}
@@ -554,7 +554,7 @@ export function GenerateMode({ onCardsReady }: GenerateModeProps) {
                 variant="outline"
                 size="lg"
                 onClick={handleDownloadCSV}
-                className="gap-2 flex-1 sm:flex-initial"
+                className="gap-2 flex-1 sm:flex-initial h-12 sm:h-9"
               >
                 <HugeiconsIcon
                   icon={Download04Icon}
